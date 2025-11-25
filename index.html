@@ -3,7 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <title>Dice Roll Probability Stats</title>
-  <link rel="stylesheet" href="style.css" />
+  <link id="app-style" rel="stylesheet" href="" />
+  <script>
+    (function() {
+      const repo = "ttrp-random-tables-builder";
+      const hasRepo = window.location.pathname.includes(`/${repo}`);
+      const base = hasRepo ? `/${repo}` : ".";
+      document.getElementById("app-style").href = `${base}/style.css`;
+      const script = document.createElement("script");
+      script.src = `${base}/script.js`;
+      script.defer = true;
+      document.head.appendChild(script);
+    })();
+  </script>
 </head>
 <body>
   <main class="layout">
@@ -77,7 +89,5 @@
       </div>
     </section>
   </main>
-
-  <script src="script.js"></script>
 </body>
 </html>
