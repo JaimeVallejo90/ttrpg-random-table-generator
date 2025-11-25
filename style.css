@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&display=swap");
+﻿@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&display=swap");
 
 :root {
   color-scheme: light;
@@ -388,6 +388,11 @@ button:hover {
   text-align: right;
 }
 
+
+
+.error { color: var(--accent-2); font-weight: 700; }
+.warning { color: #fbbf24; font-weight: 700; }
+.range-field input[type="number"] { width: 80px; }
 .range-actions {
   display: inline-flex;
   gap: 6px;
@@ -399,6 +404,13 @@ button:hover {
   width: 32px;
   height: 32px;
   padding: 0;
+}
+
+.range-field {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px;
+  align-items: center;
 }
 
 .ghost {
@@ -479,3 +491,5 @@ h2 {
     width: 100%;
   }
 }
+
+

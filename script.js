@@ -1,4 +1,4 @@
-const dieButtons = document.querySelectorAll("[data-die]");
+﻿const dieButtons = document.querySelectorAll("[data-die]");
 const dicePoolContainer = document.getElementById("dice-pool");
 const ruleChips = document.getElementById("rule-chips");
 const ruleCountDisplay = document.getElementById("rule-count");
@@ -90,6 +90,14 @@ outcomesContainer.addEventListener("input", event => {
 });
 
 outcomesContainer.addEventListener("click", event => {
+  const edgeBtn = event.target.closest("[data-edge]");
+  if (edgeBtn) {
+    const idx = Number(edgeBtn.dataset.idx);
+    const edge = edgeBtn.dataset.edge;
+    const delta = Number(edgeBtn.dataset.delta);
+    nudgeEdge(idx, edge, delta);
+    return;
+  }
   const shiftBtn = event.target.closest("[data-shift]");
   if (shiftBtn) {
     const idx = Number(shiftBtn.dataset.shift);
@@ -132,7 +140,7 @@ function renderPool() {
   dicePoolContainer.innerHTML = dicePool
     .map(
       (sides, idx) => `<button type="button" class="pool-die" data-index="${idx}">
-          <span class="pill-icon remove" aria-hidden="true">×</span>
+          <span class="pill-icon remove" aria-hidden="true">x</span>
           <span class="pill-label">d${sides}</span>
         </button>`
     )
@@ -547,16 +555,40 @@ function shiftRange(idx, delta) {
   const { minSum, maxSum } = getRangeBounds(lastDistribution);
   const o = outcomes[idx];
   if (!Number.isFinite(o.min) || !Number.isFinite(o.max)) return;
-  let newMin = o.min + delta;
-  let newMax = o.max + delta;
-  if (newMin < minSum || newMax > maxSum) return;
-
-  const prev = outcomes[idx - 1];
-  if (prev && Number.isFinite(prev.max) && newMin <= prev.max) return;
-  const next = outcomes[idx + 1];
-  if (next && Number.isFinite(next.min) && newMax >= next.min) return;
+  let newMin = clamp(o.min + delta, minSum, maxSum);
+  let newMax = clamp(o.max + delta, minSum, maxSum);
+  if (newMin > newMax) {
+    const width = o.max - o.min;
+    newMin = clamp(newMin, minSum, maxSum - width);
+    newMax = newMin + width;
+  }
 
   outcomes[idx] = { ...o, min: newMin, max: newMax };
+  renderDesigner(lastDistribution);
+  renderChart(lastDistribution);
+}
+
+function nudgeEdge(idx, edge, delta) {
+  if (!lastDistribution) return;
+  const { minSum, maxSum } = getRangeBounds(lastDistribution);
+  const o = outcomes[idx];
+  if (!o) return;
+  const current = Number.isFinite(o[edge]) ? o[edge] : edge === "min" ? minSum : maxSum;
+  const next = clamp(current + delta, minSum, maxSum);
+  const otherKey = edge === "min" ? "max" : "min";
+  const otherVal = Number.isFinite(o[otherKey])
+    ? o[otherKey]
+    : edge === "min"
+    ? maxSum
+    : minSum;
+
+  let min = edge === "min" ? next : Math.min(next, otherVal);
+  let max = edge === "max" ? next : Math.max(next, otherVal);
+  if (min > max) {
+    min = max = next;
+  }
+
+  outcomes[idx] = { ...o, min, max };
   renderDesigner(lastDistribution);
   renderChart(lastDistribution);
 }
@@ -601,15 +633,21 @@ function renderDesigner(distribution) {
       return `<div class="outcome-row" data-idx="${idx}">
         <input name="label" class="text-input" value="${escapeHtml(o.label)}" />
         <div class="range-inputs">
-          <input name="min" type="number" value="${Number.isFinite(min) ? min : ""}" min="${minSum}" max="${maxSum}" />
+          <div class="range-field">
+            <button type="button" class="ghost compact" data-edge="min" data-idx="${idx}" data-delta="-1">−</button>
+            <input name="min" type="number" value="${Number.isFinite(min) ? min : ""}" min="${minSum}" max="${maxSum}" />
+            <button type="button" class="ghost compact" data-edge="min" data-idx="${idx}" data-delta="1">+</button>
+          </div>
           <span class="muted">to</span>
-          <input name="max" type="number" value="${Number.isFinite(max) ? max : ""}" min="${minSum}" max="${maxSum}" />
+          <div class="range-field">
+            <button type="button" class="ghost compact" data-edge="max" data-idx="${idx}" data-delta="-1">−</button>
+            <input name="max" type="number" value="${Number.isFinite(max) ? max : ""}" min="${minSum}" max="${maxSum}" />
+            <button type="button" class="ghost compact" data-edge="max" data-idx="${idx}" data-delta="1">+</button>
+          </div>
         </div>
         <div class="prob">${invalid ? "-" : `${(prob * 100).toFixed(2)}%`}</div>
         <div class="range-actions">
-          <button type="button" class="ghost compact" data-shift="${idx}" data-delta="-1">−</button>
-          <button type="button" class="ghost compact" data-shift="${idx}" data-delta="1">+</button>
-          <button type="button" class="ghost danger" data-remove="${idx}" aria-label="Remove outcome">×</button>
+          <button type="button" class="ghost danger" data-remove="${idx}" aria-label="Remove outcome">x</button>
         </div>
       </div>`;
     })
@@ -634,12 +672,12 @@ function evaluateCoverage(outcomesList, totals) {
 
   const parts = [];
   if (uncovered.length)
-    parts.push(`Uncovered totals: ${uncovered[0]}${uncovered.length > 1 ? `…${uncovered[uncovered.length - 1]}` : ""}`);
+    parts.push(`Uncovered totals: ${uncovered[0]}${uncovered.length > 1 ? `â€¦${uncovered[uncovered.length - 1]}` : ""}`);
   if (overlaps.length)
-    parts.push(`Overlapping totals: ${overlaps[0]}${overlaps.length > 1 ? `…${overlaps[overlaps.length - 1]}` : ""}`);
+    parts.push(`Overlapping totals: ${overlaps[0]}${overlaps.length > 1 ? `â€¦${overlaps[overlaps.length - 1]}` : ""}`);
 
   return {
-    message: parts.length ? parts.join(" · ") : "All totals covered without overlaps."
+    message: parts.length ? parts.join(" Â· ") : "All totals covered without overlaps."
   };
 }
 
@@ -652,3 +690,4 @@ function clamp(val, min, max) {
 renderPool();
 updateRuleCount();
 calculateDistribution();
+
