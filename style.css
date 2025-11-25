@@ -280,8 +280,8 @@ button:hover {
 }
 
 .count-stepper button {
-  width: 36px;
-  height: 32px;
+  width: 70px;
+  height: 36px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.06);
   box-shadow: none;
@@ -291,9 +291,10 @@ button:hover {
 
 .count-value {
   display: inline-block;
-  min-width: 20px;
+  min-width: 32px;
   font-weight: 700;
   font-size: 14px;
+  text-align: center;
 }
 
 .results {
@@ -332,6 +333,83 @@ button:hover {
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
+}
+
+.outcome-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.outcome-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1.4fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.text-input,
+.outcome-row input[type="number"] {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.outcome-row input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.outcome-row input[type="number"]::-webkit-outer-spin-button,
+.outcome-row input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.range-inputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prob {
+  font-weight: 700;
+  text-align: right;
+}
+
+.range-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.compact {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.ghost.danger {
+  color: var(--accent-2);
 }
 
 h2 {

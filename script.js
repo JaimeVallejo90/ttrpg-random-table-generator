@@ -4,6 +4,9 @@ const ruleChips = document.getElementById("rule-chips");
 const ruleCountDisplay = document.getElementById("rule-count");
 const ruleCountInc = document.getElementById("count-inc");
 const ruleCountDec = document.getElementById("count-dec");
+const outcomesContainer = document.getElementById("outcomes-container");
+const addOutcomeButton = document.getElementById("add-outcome");
+const autoSpreadButton = document.getElementById("auto-spread");
 const summaryDice = document.getElementById("summary-dice");
 const summaryMean = document.getElementById("summary-mean");
 const summaryRange = document.getElementById("summary-range");
@@ -14,6 +17,12 @@ const tableContainer = document.getElementById("table-container");
 const dicePool = [6, 6, 6];
 let activeRule = "none";
 let activeRuleCount = 1;
+let outcomes = [
+  { label: "Outcome 1", min: null, max: null },
+  { label: "Outcome 2", min: null, max: null },
+  { label: "Outcome 3", min: null, max: null }
+];
+let lastDistribution = null;
 
 dieButtons.forEach(button => {
   button.addEventListener("click", () => {
@@ -52,14 +61,56 @@ ruleCountDec.addEventListener("click", () => {
   calculateDistribution();
 });
 
+addOutcomeButton.addEventListener("click", () => {
+  outcomes.push({ label: `Outcome ${outcomes.length + 1}`, min: null, max: null });
+  renderDesigner(lastDistribution);
+});
+
+autoSpreadButton.addEventListener("click", () => {
+  if (!lastDistribution) return;
+  autoSpreadRanges(lastDistribution);
+  renderDesigner(lastDistribution);
+  renderChart(lastDistribution);
+});
+
+outcomesContainer.addEventListener("input", event => {
+  const row = event.target.closest("[data-idx]");
+  if (!row) return;
+  const idx = Number(row.dataset.idx);
+  const field = event.target.name;
+  if (field === "label") {
+    outcomes[idx].label = event.target.value;
+  } else if (field === "min" || field === "max") {
+    const val = parseInt(event.target.value, 10);
+    outcomes[idx][field] = Number.isFinite(val) ? val : null;
+  }
+  renderDesigner(lastDistribution);
+  renderChart(lastDistribution);
+});
+
+outcomesContainer.addEventListener("click", event => {
+  const shiftBtn = event.target.closest("[data-shift]");
+  if (shiftBtn) {
+    const idx = Number(shiftBtn.dataset.shift);
+    const delta = Number(shiftBtn.dataset.delta);
+    shiftRange(idx, delta);
+    return;
+  }
+  const removeBtn = event.target.closest("[data-remove]");
+  if (!removeBtn) return;
+  const idx = Number(removeBtn.dataset.remove);
+  outcomes.splice(idx, 1);
+  if (!outcomes.length) outcomes.push({ label: "Outcome 1", min: null, max: null });
+  renderDesigner(lastDistribution);
+  renderChart(lastDistribution);
+});
+
 function updateRuleCount() {
   ruleCountDisplay.textContent = activeRuleCount;
 }
 
 function addDieToPool(sides) {
-  if (!Number.isFinite(sides)) {
-    return;
-  }
+  if (!Number.isFinite(sides)) return;
   if (sides < 2 || sides > 200) {
     chartContainer.innerHTML = `<p class="muted">Dice must have between 2 and 200 sides.</p>`;
     tableContainer.innerHTML = "";
@@ -77,11 +128,9 @@ function renderPool() {
     dicePoolContainer.innerHTML = `<p class="muted">Add dice to begin.</p>`;
     return;
   }
-
   dicePoolContainer.innerHTML = dicePool
     .map(
-      (sides, idx) =>
-        `<button type="button" class="pool-die" data-index="${idx}">
+      (sides, idx) => `<button type="button" class="pool-die" data-index="${idx}">
           <span class="pill-icon remove" aria-hidden="true">×</span>
           <span class="pill-label">d${sides}</span>
         </button>`
@@ -108,28 +157,36 @@ function calculateDistribution() {
     tableContainer.innerHTML = "";
     updateSummary(null);
     chartCaption.textContent = "";
+    renderDesigner(null);
+    lastDistribution = null;
     return;
   }
 
   const distribution = buildDistribution(dicePool, activeRule, activeRuleCount);
   if (distribution.error) {
+    lastDistribution = null;
     chartContainer.innerHTML = `<p class="muted">${distribution.error}</p>`;
     tableContainer.innerHTML = "";
     updateSummary(null);
     chartCaption.textContent = "";
+    renderDesigner(null);
     return;
+  }
+
+  lastDistribution = distribution;
+  if (!rangesValid(distribution)) {
+    autoSpreadRanges(distribution);
   }
 
   renderChart(distribution);
   renderTable(distribution);
   updateSummary(distribution);
+  renderDesigner(distribution);
 }
 
 function buildDistribution(sidesArray, rule, ruleCount) {
   const active = rule !== "none" && Number.isFinite(ruleCount) && ruleCount > 0;
-  if (!active) {
-    return buildStandardDistribution(sidesArray);
-  }
+  if (!active) return buildStandardDistribution(sidesArray);
 
   const maxOutcomes = 300000;
   const totalOutcomesEstimate = sidesArray.reduce((acc, sides) => acc * sides, 1);
@@ -225,7 +282,12 @@ function applyRuleToRoll(rolls, rule, count) {
   }
 }
 
-function renderChart({ probabilities, dicePool: pool }) {
+function renderChart(distribution) {
+  if (!distribution) {
+    chartContainer.innerHTML = "";
+    return;
+  }
+  const { probabilities, dicePool: pool } = distribution;
   const width = 960;
   const height = 320;
   const margin = { top: 12, right: 16, bottom: 36, left: 44 };
@@ -265,6 +327,21 @@ function renderChart({ probabilities, dicePool: pool }) {
     tickLines.push({ y, label: `${pct.toFixed(1)}%` });
   }
 
+  const xTicks = Math.min(8, Math.max(2, probabilities.length - 1));
+  const xTickNodes = [];
+  for (let i = 0; i <= xTicks; i += 1) {
+    const value = minSum + ((maxSum - minSum) * i) / xTicks;
+    const rounded = Math.round(value);
+    const x =
+      probabilities.length === 1
+        ? width / 2
+        : margin.left + ((value - minSum) / (maxSum - minSum || 1)) * usableWidth;
+    xTickNodes.push({ x, label: rounded });
+  }
+
+  const probabilitiesByTotal = new Map(probabilities.map(p => [p.total, p.probability]));
+  const regions = renderOutcomeRegions(probabilitiesByTotal, usableWidth, usableHeight, margin, minSum, maxSum);
+
   chartContainer.innerHTML = `<svg viewBox="0 0 ${width} ${height}" aria-hidden="false">
       <defs>
         <linearGradient id="area" x1="0" x2="0" y1="0" y2="1">
@@ -282,6 +359,7 @@ function renderChart({ probabilities, dicePool: pool }) {
           )
           .join("")}
         <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,0.2)" />
+        ${regions.rects}
         <path d="${areaD}" fill="url(#area)" />
         <path d="${pathD}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" />
         ${points
@@ -293,12 +371,54 @@ function renderChart({ probabilities, dicePool: pool }) {
           )
           .join("")}
       </g>
-      <text x="${width / 2}" y="${height - 10}" text-anchor="middle" fill="var(--muted)" font-size="11">
+      ${regions.labels}
+      <g>
+        ${xTickNodes
+          .map(
+            t => `<g>
+            <line x1="${t.x}" y1="${height - margin.bottom}" x2="${t.x}" y2="${height - margin.bottom + 6}" stroke="rgba(255,255,255,0.3)" />
+            <text x="${t.x}" y="${height - margin.bottom + 24}" text-anchor="middle" fill="var(--muted)" font-size="11">${t.label}</text>
+          </g>`
+          )
+          .join("")}
+      </g>
+      <text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="var(--muted)" font-size="11">
         Total (${minSum} - ${maxSum})
       </text>
     </svg>`;
 
   chartCaption.textContent = `${describePool(pool)}${describeRule()}: exact probability of totals (${minSum} to ${maxSum}).`;
+}
+
+function renderOutcomeRegions(probabilitiesByTotal, usableWidth, usableHeight, margin, minSum, maxSum) {
+  const ranges = getOutcomeRanges(minSum, maxSum);
+  if (!ranges.length) return { rects: "", labels: "" };
+  const baselineY = margin.top + usableHeight;
+  const regionHeight = usableHeight * 0.65;
+  const hueStep = 360 / Math.max(ranges.length, 1);
+
+  const rects = [];
+  const labels = [];
+
+  ranges.forEach((range, idx) => {
+    if (!Number.isFinite(range.min) || !Number.isFinite(range.max) || range.min > range.max) return;
+    const startX = margin.left + ((range.min - minSum) / (maxSum - minSum || 1)) * usableWidth;
+    const endX = margin.left + ((range.max - minSum) / (maxSum - minSum || 1)) * usableWidth;
+    const hue = Math.round((idx * hueStep) % 360);
+    const prob = sumProbability(probabilitiesByTotal, range.min, range.max);
+    const centerX = (startX + endX) / 2;
+    rects.push(`<rect x="${startX}" y="${baselineY - regionHeight}" width="${Math.max(
+      endX - startX,
+      1
+    )}" height="${regionHeight}" fill="hsla(${hue}, 60%, 60%, 0.16)" stroke="hsla(${hue}, 60%, 60%, 0.4)" stroke-width="0.5" rx="6" ry="6">
+      <title>${range.label}: ${range.min}-${range.max} (${(prob * 100).toFixed(2)}%)</title>
+    </rect>`);
+    labels.push(`<text x="${centerX}" y="${baselineY - regionHeight + 18}" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="700" stroke="var(--panel)" stroke-width="0.6" paint-order="stroke fill">
+      ${(prob * 100).toFixed(1)}%
+    </text>`);
+  });
+
+  return { rects: rects.join(""), labels: labels.join("") };
 }
 
 function renderTable({ probabilities, totalOutcomes }) {
@@ -338,12 +458,9 @@ function updateSummary(distribution) {
   }
 
   const { probabilities, dicePool: pool } = distribution;
-  const expectedValue = probabilities.reduce(
-    (acc, p) => acc + p.total * p.probability,
-    0
-  );
+  const expectedValue = probabilities.reduce((acc, p) => acc + p.total * p.probability, 0);
 
-  summaryDice.textContent = describePool(pool);
+  summaryDice.textContent = `${describePool(pool)}${describeRule()}`;
   summaryMean.textContent = expectedValue.toFixed(2);
   summaryRange.textContent = `${probabilities[0].total} - ${probabilities[probabilities.length - 1].total}`;
 }
@@ -376,6 +493,58 @@ function describeRule() {
       ? ` keep highest ${count}`
       : "";
   return label ? ` (${label})` : "";
+}
+
+function rangesValid(distribution) {
+  if (!distribution) return false;
+  const { minSum, maxSum } = getRangeBounds(distribution);
+  return outcomes.every(
+    o => Number.isFinite(o.min) && Number.isFinite(o.max) && o.min <= o.max && o.min >= minSum && o.max <= maxSum
+  );
+}
+
+function autoSpreadRanges(distribution) {
+  if (!distribution) return;
+  const { totals } = distribution;
+  const minSum = totals[0];
+  const maxSum = totals[totals.length - 1];
+  const span = maxSum - minSum + 1;
+  const count = Math.max(outcomes.length, 1);
+  const base = Math.floor(span / count);
+  let cursor = minSum;
+
+  outcomes = outcomes.map((o, idx) => {
+    const extra = idx < span % count ? 1 : 0;
+    const start = cursor;
+    const end = idx === outcomes.length - 1 ? maxSum : Math.min(maxSum, cursor + base + extra - 1);
+    cursor = end + 1;
+    return { ...o, min: start, max: end };
+  });
+}
+
+function shiftRange(idx, delta) {
+  if (!lastDistribution) return;
+  const { minSum, maxSum } = getRangeBounds(lastDistribution);
+  const o = outcomes[idx];
+  if (!Number.isFinite(o.min) || !Number.isFinite(o.max)) return;
+  const width = o.max - o.min;
+  let newMin = o.min + delta;
+  let newMax = o.max + delta;
+  if (newMin < minSum || newMax > maxSum) return;
+
+  const prev = outcomes[idx - 1];
+  if (prev && Number.isFinite(prev.max) && newMin <= prev.max) return;
+  const next = outcomes[idx + 1];
+  if (next && Number.isFinite(next.min) && newMax >= next.min) return;
+
+  outcomes[idx] = { ...o, min: newMin, max: newMax };
+  renderDesigner(lastDistribution);
+  renderChart(lastDistribution);
+}
+
+function getRangeBounds(distribution) {
+  const { totals } = distribution;
+  return { minSum: totals[0], maxSum: totals[totals.length - 1] };
 }
 
 // Initial state
