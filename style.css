@@ -450,6 +450,22 @@ button:active,
 .prob {
   font-weight: 700;
   text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lock-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: var(--text);
+}
+
+.lock-btn.unlock {
+  color: var(--accent-2);
+  border-color: var(--accent-2);
 }
 
 

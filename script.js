@@ -21,9 +21,9 @@ const dicePool = [6, 6, 6];
 let activeRule = "none";
 let activeRuleCount = 1;
 let outcomes = [
-  { label: "", min: 3, max: 6 },
-  { label: "", min: 7, max: 10 },
-  { label: "", min: 11, max: 18 }
+  { label: "", min: 3, max: 6, locked: false },
+  { label: "", min: 7, max: 10, locked: false },
+  { label: "", min: 11, max: 18, locked: false }
 ];
 let lastDistribution = null;
 
@@ -65,7 +65,7 @@ ruleCountDec.addEventListener("click", () => {
 });
 
 addOutcomeButton.addEventListener("click", () => {
-  outcomes.push({ label: "", min: null, max: null });
+  outcomes.push({ label: "", min: null, max: null, locked: false });
   renderDesigner(lastDistribution);
 });
 
@@ -121,6 +121,15 @@ outcomesContainer.addEventListener("click", event => {
     const edge = edgeBtn.dataset.edge;
     const delta = Number(edgeBtn.dataset.delta);
     nudgeEdge(idx, edge, delta);
+    return;
+  }
+  const lockBtn = event.target.closest("[data-lock]");
+  if (lockBtn) {
+    const idx = Number(lockBtn.dataset.lock);
+    outcomes[idx].locked = !outcomes[idx].locked;
+    renderDesigner(lastDistribution);
+    renderChart(lastDistribution);
+    renderTable(lastDistribution);
     return;
   }
   const shiftBtn = event.target.closest("[data-shift]");
@@ -579,7 +588,7 @@ function getOutcomeRanges(distribution) {
   let ranges = outcomes.map(o => {
     const min = Number.isFinite(o.min) ? clamp(o.min, minSum, maxSum) : minSum;
     const max = Number.isFinite(o.max) ? clamp(o.max, minSum, maxSum) : maxSum;
-    return { label: o.label, min: Math.min(min, max), max: Math.max(min, max) };
+    return { label: o.label, locked: o.locked, min: Math.min(min, max), max: Math.max(min, max) };
   });
 
   const invalid = ranges.some(r => !Number.isFinite(r.min) || !Number.isFinite(r.max) || r.min > r.max);
@@ -587,6 +596,7 @@ function getOutcomeRanges(distribution) {
     autoSpreadRanges(distribution);
     ranges = outcomes.map(o => ({
       label: o.label,
+      locked: o.locked,
       min: clamp(o.min, minSum, maxSum),
       max: clamp(o.max, minSum, maxSum)
     }));
@@ -623,49 +633,62 @@ function autoSpreadRanges(distribution) {
     return;
   }
 
-  // Simple symmetric spread: even base widths plus remainder fanned out from the center.
   const { minSum, maxSum } = getRangeBounds(distribution);
   const span = maxSum - minSum + 1;
-  const base = Math.floor(span / count);
-  let remainder = span - base * count;
-  const lengths = Array(count).fill(base);
 
-  // Order to distribute extras from the center outward.
-  const order = [];
-  if (count % 2 === 1) {
-    const center = Math.floor(count / 2);
-    order.push(center);
-    for (let k = 1; center - k >= 0 || center + k < count; k += 1) {
-      if (center - k >= 0) order.push(center - k);
-      if (center + k < count) order.push(center + k);
-    }
-  } else {
-    const left = count / 2 - 1;
-    const right = left + 1;
-    order.push(left, right);
-    for (let k = 1; left - k >= 0 || right + k < count; k += 1) {
-      if (left - k >= 0) order.push(left - k);
-      if (right + k < count) order.push(right + k);
-    }
-  }
+  // Pre-clamp current ranges.
+  const clamped = outcomes.map(o => ({
+    ...o,
+    min: Number.isFinite(o.min) ? clamp(o.min, minSum, maxSum) : minSum,
+    max: Number.isFinite(o.max) ? clamp(o.max, minSum, maxSum) : maxSum
+  }));
 
-  let idxOrder = 0;
-  while (remainder > 0) {
-    const targetIdx = order[idxOrder % order.length];
-    lengths[targetIdx] += 1;
-    remainder -= 1;
-    idxOrder += 1;
-  }
+  // Identify locked and unlocked indices.
+  const locked = clamped.map(o => Boolean(o.locked));
 
-  // Build ranges sequentially with the symmetric lengths.
+  // Fill unlocked segments between locked ranges.
   let cursor = minSum;
-  outcomes = outcomes.map((o, i) => {
-    const width = lengths[i];
-    const start = cursor;
-    const end = i === outcomes.length - 1 ? maxSum : Math.min(maxSum, start + width - 1);
-    cursor = end + 1;
-    return { ...o, min: start, max: end };
-  });
+  const updated = clamped.slice();
+
+  for (let i = 0; i < clamped.length; i += 1) {
+    if (locked[i]) {
+      // Clamp locked and move cursor past it.
+      const width = Math.max(0, clamped[i].max - clamped[i].min);
+      const start = clamp(clamped[i].min, cursor, maxSum);
+      const end = clamp(clamped[i].max, start, maxSum);
+      updated[i] = { ...updated[i], min: start, max: end };
+      cursor = end + 1;
+      continue;
+    }
+
+    // Determine span until next locked or end.
+    let j = i;
+    while (j < clamped.length && !locked[j]) j += 1;
+    const segmentCount = j - i;
+    const nextLockedStart = j < clamped.length ? clamped[j].min : maxSum + 1;
+    const availableEnd = Math.min(nextLockedStart - 1, maxSum);
+    const availableSpan = Math.max(0, availableEnd - cursor + 1);
+
+    if (segmentCount <= 0 || availableSpan <= 0) {
+      continue;
+    }
+
+    const base = Math.floor(availableSpan / segmentCount);
+    let remainder = availableSpan - base * segmentCount;
+
+    for (let k = 0; k < segmentCount; k += 1) {
+      const width = base + (remainder > 0 ? 1 : 0);
+      if (remainder > 0) remainder -= 1;
+      const start = cursor;
+      const end = Math.min(start + width - 1, availableEnd);
+      updated[i + k] = { ...updated[i + k], min: start, max: end };
+      cursor = end + 1;
+    }
+
+    i = j - 1; // skip processed segment
+  }
+
+  outcomes = updated;
 }
 
 function shiftRange(idx, delta) {
@@ -751,6 +774,7 @@ function renderDesigner(distribution) {
       const prob = sumProbability(probabilitiesByTotal, min, max);
       const invalid = !Number.isFinite(min) || !Number.isFinite(max) || min > max;
       const approx = formatApproxFraction(prob);
+      const lockLabel = o.locked ? "Unlock" : "Lock";
       return `<div class="outcome-row" data-idx="${idx}">
         <span class="label-pill">Outcome ${idx + 1}</span>
         <input name="label" class="text-input" maxlength="40" value="${escapeHtml(o.label || "")}" placeholder="Name (optional)" />
@@ -767,7 +791,10 @@ function renderDesigner(distribution) {
             <button type="button" class="ghost compact" data-edge="max" data-idx="${idx}" data-delta="1">+</button>
           </div>
         </div>
-        <div class="prob">${invalid ? "-" : `${(prob * 100).toFixed(2)}% ${approx}`}</div>
+        <div class="prob">
+          <button type="button" class="ghost lock-btn ${o.locked ? "unlock" : ""}" data-lock="${idx}" aria-label="Lock outcome">${lockLabel}</button>
+          ${invalid ? "-" : `${(prob * 100).toFixed(2)}% ${approx}`}
+        </div>
         <div class="range-actions">
           <button type="button" class="ghost danger" data-remove="${idx}" aria-label="Remove outcome">x</button>
         </div>
