@@ -158,6 +158,25 @@ button:hover {
   box-shadow: 0 15px 28px rgba(59, 130, 246, 0.35);
 }
 
+[data-theme="light"] button:hover {
+  box-shadow: 0 15px 28px rgba(37, 99, 235, 0.25);
+}
+
+button:active,
+.ghost:active {
+  transform: none;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+@media (hover: none) {
+  button:hover {
+    transform: none;
+    box-shadow: 0 12px 25px rgba(59, 130, 246, 0.25);
+  }
+  [data-theme="light"] button:hover {
+    box-shadow: 0 12px 25px rgba(37, 99, 235, 0.2);
+  }
+}
 [data-theme="light"] button:not(.ghost) {
   background: linear-gradient(135deg, #5aa8ff, #7bb8ff);
   color: #0b1020;

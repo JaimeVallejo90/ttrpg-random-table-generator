@@ -89,7 +89,8 @@ copyOutcomesButton?.addEventListener("click", () => {
 });
 
 themeToggle?.addEventListener("click", () => {
-  const next = (document.documentElement.dataset.theme || "dark") === "dark" ? "light" : "dark";
+  const current = document.documentElement.dataset.theme || "dark";
+  const next = current === "dark" ? "light" : "dark";
   applyTheme(next);
 });
 
@@ -807,14 +808,23 @@ function clamp(val, min, max) {
 }
 
 function applyTheme(mode) {
-  document.documentElement.dataset.theme = mode;
+  const next = mode === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
   if (themeToggle) {
-    themeToggle.textContent = mode === "light" ? "Dark mode" : "Light mode";
+    themeToggle.textContent = next === "light" ? "Dark mode" : "Light mode";
   }
   try {
-    localStorage.setItem("theme", mode);
+    localStorage.setItem("theme", next);
   } catch (_) {
     // ignore storage issues
+  }
+}
+
+function getSavedTheme() {
+  try {
+    return localStorage.getItem("theme");
+  } catch (_) {
+    return null;
   }
 }
 
@@ -822,4 +832,4 @@ function applyTheme(mode) {
 renderPool();
 updateRuleCount();
 calculateDistribution();
-applyTheme("dark");
+applyTheme(getSavedTheme() || "dark");
