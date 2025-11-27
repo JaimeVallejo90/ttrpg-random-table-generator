@@ -8,6 +8,7 @@ const outcomesContainer = document.getElementById("outcomes-container");
 const addOutcomeButton = document.getElementById("add-outcome");
 const autoSpreadButton = document.getElementById("auto-spread");
 const copyOutcomesButton = document.getElementById("copy-outcomes");
+const shareConfigButton = document.getElementById("share-config");
 const themeToggle = document.getElementById("theme-toggle");
 const coverageEl = document.getElementById("outcome-coverage");
 const summaryDice = document.getElementById("summary-dice");
@@ -26,6 +27,120 @@ let outcomes = [
   { label: "", min: 11, max: 18, locked: false }
 ];
 let lastDistribution = null;
+const STORAGE_KEY = "ttrp-random-table-state";
+const ALLOWED_RULES = new Set(["none", "drop-low", "drop-high", "keep-low", "keep-high"]);
+
+function encodeConfig(config) {
+  try {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(config))));
+  } catch (_) {
+    return null;
+  }
+}
+
+function decodeConfig(encoded) {
+  try {
+    const json = decodeURIComponent(escape(atob(encoded)));
+    return JSON.parse(json);
+  } catch (_) {
+    return null;
+  }
+}
+
+function coerceOutcome(o) {
+  return {
+    label: typeof o?.label === "string" ? o.label.slice(0, 40) : "",
+    min: Number.isFinite(o?.min) ? Number(o.min) : null,
+    max: Number.isFinite(o?.max) ? Number(o.max) : null,
+    locked: Boolean(o?.locked)
+  };
+}
+
+function getCurrentState() {
+  return {
+    dicePool: [...dicePool],
+    activeRule,
+    activeRuleCount,
+    outcomes: outcomes.map(coerceOutcome)
+  };
+}
+
+function applyState(state) {
+  if (!state || typeof state !== "object") return false;
+
+  if (Array.isArray(state.dicePool) && state.dicePool.length) {
+    const nextDice = state.dicePool
+      .map(n => Number(n))
+      .filter(n => Number.isFinite(n) && n >= 2 && n <= 200);
+    if (nextDice.length) {
+      dicePool.length = 0;
+      nextDice.forEach(n => dicePool.push(n));
+    }
+  }
+
+  if (ALLOWED_RULES.has(state.activeRule)) {
+    activeRule = state.activeRule;
+  }
+
+  const maybeCount = Number(state.activeRuleCount);
+  if (Number.isFinite(maybeCount) && maybeCount > 0) {
+    activeRuleCount = Math.min(30, Math.max(1, Math.round(maybeCount)));
+  }
+
+  if (Array.isArray(state.outcomes) && state.outcomes.length) {
+    outcomes = state.outcomes.map(coerceOutcome);
+  }
+
+  syncRuleChipUI();
+  return true;
+}
+
+function persistState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(getCurrentState()));
+  } catch (_) {
+    // ignore persistence errors
+  }
+}
+
+function buildShareLink() {
+  const encoded = encodeConfig(getCurrentState());
+  if (!encoded) return "";
+  const base = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+  return `${base}#config=${encoded}`;
+}
+
+function loadStateFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return applyState(parsed);
+  } catch (_) {
+    return false;
+  }
+}
+
+function loadStateFromHash() {
+  const hash = window.location.hash || "";
+  const match = hash.match(/config=([^&]+)/);
+  if (!match) return false;
+  const decoded = decodeConfig(match[1]);
+  if (!decoded) return false;
+  return applyState(decoded);
+}
+
+function syncRuleChipUI() {
+  Array.from(ruleChips.children).forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.rule === activeRule);
+  });
+}
+
+function hydrateState() {
+  // Hash config takes priority over stored state.
+  if (loadStateFromHash()) return;
+  loadStateFromStorage();
+}
 
 dieButtons.forEach(button => {
   button.addEventListener("click", () => {
@@ -47,8 +162,7 @@ ruleChips.addEventListener("click", event => {
   const chip = event.target.closest("[data-rule]");
   if (!chip) return;
   activeRule = chip.dataset.rule;
-  Array.from(ruleChips.children).forEach(btn => btn.classList.remove("active"));
-  chip.classList.add("active");
+  syncRuleChipUI();
   calculateDistribution();
 });
 
@@ -67,6 +181,7 @@ ruleCountDec.addEventListener("click", () => {
 addOutcomeButton.addEventListener("click", () => {
   outcomes.push({ label: "", min: null, max: null, locked: false });
   renderDesigner(lastDistribution);
+  persistState();
 });
 
 autoSpreadButton.addEventListener("click", () => {
@@ -75,6 +190,7 @@ autoSpreadButton.addEventListener("click", () => {
   renderDesigner(lastDistribution);
   renderChart(lastDistribution);
   renderTable(lastDistribution);
+  persistState();
 });
 
 copyOutcomesButton?.addEventListener("click", () => {
@@ -85,6 +201,22 @@ copyOutcomesButton?.addEventListener("click", () => {
     ?.writeText(text)
     .catch(() => {
       // clipboard may be blocked; ignore
+    });
+});
+
+shareConfigButton?.addEventListener("click", () => {
+  const link = buildShareLink();
+  if (!link) return;
+  navigator.clipboard
+    ?.writeText(link)
+    .then(() => {
+      shareConfigButton.textContent = "Link copied";
+      setTimeout(() => {
+        shareConfigButton.textContent = "Share link";
+      }, 1800);
+    })
+    .catch(() => {
+      window.prompt("Copy this link:", link);
     });
 });
 
@@ -104,6 +236,7 @@ outcomesContainer.addEventListener("input", event => {
     if (lastDistribution) {
       renderTable(lastDistribution);
     }
+    persistState();
     return; // avoid re-render to keep focus while typing
   }
   if (field === "min" || field === "max") {
@@ -112,6 +245,7 @@ outcomesContainer.addEventListener("input", event => {
   }
   renderDesigner(lastDistribution);
   renderChart(lastDistribution);
+  persistState();
 });
 
 outcomesContainer.addEventListener("click", event => {
@@ -130,6 +264,7 @@ outcomesContainer.addEventListener("click", event => {
     renderDesigner(lastDistribution);
     renderChart(lastDistribution);
     renderTable(lastDistribution);
+    persistState();
     return;
   }
   const shiftBtn = event.target.closest("[data-shift]");
@@ -146,6 +281,7 @@ outcomesContainer.addEventListener("click", event => {
   if (!outcomes.length) outcomes.push({ label: "Outcome 1", min: null, max: null });
   renderDesigner(lastDistribution);
   renderChart(lastDistribution);
+  persistState();
 });
 
 function updateRuleCount() {
@@ -202,6 +338,7 @@ function calculateDistribution() {
     chartCaption.textContent = "";
     renderDesigner(null);
     lastDistribution = null;
+    persistState();
     return;
   }
 
@@ -213,6 +350,7 @@ function calculateDistribution() {
     updateSummary(null);
     chartCaption.textContent = "";
     renderDesigner(null);
+    persistState();
     return;
   }
 
@@ -225,6 +363,7 @@ function calculateDistribution() {
   renderTable(distribution);
   updateSummary(distribution);
   renderDesigner(distribution);
+  persistState();
 }
 
 function buildDistribution(sidesArray, rule, ruleCount) {
@@ -727,6 +866,7 @@ function shiftRange(idx, delta) {
   renderDesigner(lastDistribution);
   renderChart(lastDistribution);
   renderTable(lastDistribution);
+  persistState();
 }
 
 function nudgeEdge(idx, edge, delta) {
@@ -753,6 +893,7 @@ function nudgeEdge(idx, edge, delta) {
   renderDesigner(lastDistribution);
   renderChart(lastDistribution);
   renderTable(lastDistribution);
+  persistState();
 }
 
 function getRangeBounds(distribution) {
@@ -889,6 +1030,7 @@ function getSavedTheme() {
 }
 
 // Initial state
+hydrateState();
 renderPool();
 updateRuleCount();
 calculateDistribution();
